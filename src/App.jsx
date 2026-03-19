@@ -135,7 +135,11 @@ function App() {
     game.coins = levelData.coins.map(coin => ({ ...coin, collected: false }))
 
     // Cargar enemigos
-    game.enemies = levelData.enemies.map(enemy => ({ ...enemy }))
+    game.enemies = levelData.enemies.map(enemy => ({
+      ...enemy,
+      dead: false,
+      hitBySword: false
+    }))
 
     // Cargar bloques ? (power-ups)
     game.powerUpBlocks = levelData.powerUpBlocks ? levelData.powerUpBlocks.map(block => ({
@@ -312,44 +316,88 @@ function App() {
     ctx.save()
 
     // Color del efecto (blanco brillante al inicio, se desvanece)
-    const alpha = progress * 0.8
+    const alpha = Math.max(0.3, progress) * 0.9
     ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
     ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
-    ctx.lineWidth = 3
+    ctx.lineWidth = 4
 
     if (direction === 'right') {
       // Arco de ataque hacia la derecha
-      const arcX = x + PLAYER_SIZE
+      const arcX = x + PLAYER_SIZE + 10
       const arcY = y + PLAYER_SIZE / 2
+
+      // Arco principal
       ctx.beginPath()
-      ctx.arc(arcX, arcY, 35 * progress, -Math.PI / 4, Math.PI / 4, false)
+      ctx.arc(arcX, arcY, 30, -Math.PI / 3, Math.PI / 3, false)
       ctx.stroke()
 
-      // Rastro del ataque
-      ctx.fillRect(x + PLAYER_SIZE, y + 8, 40 * progress, 16)
+      // Rastro del ataque (se expande)
+      ctx.fillStyle = `rgba(255, 255, 200, ${alpha})`
+      ctx.fillRect(x + PLAYER_SIZE, y + 4, progress * 45, 24)
+
+      // Línea de la espada
+      ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`
+      ctx.beginPath()
+      ctx.moveTo(x + PLAYER_SIZE, y + 16)
+      ctx.lineTo(x + PLAYER_SIZE + progress * 45, y + 16)
+      ctx.stroke()
+
     } else if (direction === 'left') {
       // Arco de ataque hacia la izquierda
-      const arcX = x
+      const arcX = x - 10
       const arcY = y + PLAYER_SIZE / 2
+
+      // Arco
       ctx.beginPath()
-      ctx.arc(arcX, arcY, 35 * progress, Math.PI * 0.75, Math.PI * 1.25, false)
+      ctx.arc(arcX, arcY, 30, Math.PI * 0.67, Math.PI * 1.33, false)
       ctx.stroke()
 
       // Rastro
-      ctx.fillRect(x - 40 * progress, y + 8, 40 * progress, 16)
+      ctx.fillStyle = `rgba(255, 255, 200, ${alpha})`
+      ctx.fillRect(x - progress * 45, y + 4, progress * 45, 24)
+
+      // Línea
+      ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`
+      ctx.beginPath()
+      ctx.moveTo(x, y + 16)
+      ctx.lineTo(x - progress * 45, y + 16)
+      ctx.stroke()
+
     } else if (direction === 'up') {
       // Arco de ataque hacia arriba
       const arcX = x + PLAYER_SIZE / 2
-      const arcY = y
+      const arcY = y - 10
+
+      // Arco
       ctx.beginPath()
-      ctx.arc(arcX, arcY, 35 * progress, Math.PI, 0, false)
+      ctx.arc(arcX, arcY, 30, Math.PI * 0.9, Math.PI * 2.1, false)
       ctx.stroke()
 
       // Rastro
-      ctx.fillRect(x + 4, y - 32 * progress, 24, 32 * progress)
+      ctx.fillStyle = `rgba(255, 255, 200, ${alpha})`
+      ctx.fillRect(x + 4, y - progress * 40, 24, progress * 40)
+
+      // Línea
+      ctx.strokeStyle = `rgba(200, 200, 255, ${alpha})`
+      ctx.beginPath()
+      ctx.moveTo(x + 16, y)
+      ctx.lineTo(x + 16, y - progress * 40)
+      ctx.stroke()
     }
 
     ctx.restore()
+  }
+
+  // Dibujar enemigo
+  const drawEnemy = (ctx, enemy, time, timestamp) => {
+    if (enemy.dead) return  // No dibujar si está muerto
+
+    const squish = Math.sin(time / 100) * 2
+    drawSprite(ctx, ENEMY_SPRITE, enemy.x, enemy.y - squish, 32, {
+      1: COLORS.enemy,
+      2: '#FF6B6B',
+      3: COLORS.enemyInner,
+    })
   }
 
   // Dibujar moneda
@@ -761,13 +809,16 @@ function App() {
 
       // Actualizar enemigos
       enemies.forEach(enemy => {
+        // Si el enemigo ya está muerto, ignorar
+        if (enemy.dead) return
+
         enemy.x += enemy.vx
         if (enemy.x <= enemy.startX || enemy.x >= enemy.endX) {
           enemy.vx *= -1
         }
 
         // Verificar colisión con ataque de espada
-        if (player.isAttacking && player.attackDirection) {
+        if (player.isAttacking && player.attackDirection && !enemy.hitBySword) {
           const hitbox = getAttackHitbox(player, player.attackDirection)
           if (
             hitbox.x < enemy.x + 28 &&
@@ -776,14 +827,16 @@ function App() {
             hitbox.y + hitbox.height > enemy.y + 4
           ) {
             // Enemigo eliminado por espada
-            enemy.x = -100
+            enemy.dead = true
+            enemy.hitBySword = true
             setScore(prev => prev + ATTACK_POINTS)
           }
         }
 
-        // Colisión con jugador (solo si no está en dash)
+        // Colisión con jugador (solo si no está en dash ni atacando)
         if (
           !player.isDashing && !player.isAttacking &&
+          !enemy.dead &&
           player.x < enemy.x + 28 &&
           player.x + PLAYER_SIZE > enemy.x + 4 &&
           player.y < enemy.y + 28 &&
@@ -791,7 +844,7 @@ function App() {
         ) {
           // Si el jugador cae sobre el enemigo
           if (player.vy > 0 && player.y + PLAYER_SIZE < enemy.y + 16) {
-            enemy.x = -100 // Eliminar enemigo
+            enemy.dead = true
             player.vy = JUMP_FORCE / 2
             setScore(prev => prev + 200)
           } else {
@@ -818,6 +871,9 @@ function App() {
           }
         }
       })
+
+      // Limpiar enemigos muertos
+      game.enemies = enemies.filter(e => !e.dead)
 
       // Actualizar cámara
       camera.x = Math.max(0, Math.min(player.x - CANVAS_WIDTH / 2, levelWidth - CANVAS_WIDTH))
@@ -857,7 +913,7 @@ function App() {
       coins.forEach(coin => drawCoin(ctx, coin, timestamp))
 
       // Dibujar enemigos
-      enemies.forEach(enemy => drawEnemy(ctx, enemy, timestamp))
+      enemies.forEach(enemy => drawEnemy(ctx, enemy, timestamp, timestamp))
 
       // Dibujar bloques ?
       powerUpBlocks.forEach(block => {
