@@ -310,3 +310,10 @@ body {
   color: #FFD700;
 }
 
+.sword-hint {
+  font-size: 8px;
+  color: #888;
+  margin-top: 5px;
+  text-shadow: 1px 1px 0 #000;
+}
+

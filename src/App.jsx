@@ -11,6 +11,14 @@ const DASH_SPEED = 18
 const DASH_DURATION = 150
 const MAX_DASH_CHARGES = 3
 const DASH_RECHARGE_TIME = 2000
+
+// Constantes del sistema de espada
+const SWORD_DURATION = 10000        // 10 segundos total
+const SWORD_WARNING_TIME = 3000     // 3 segundos: advertencia amarilla
+const SWORD_CRITICAL_TIME = 1000    // 1 segundo: advertencia roja, sin ataque
+const ATTACK_DURATION = 200         // ms que el hitbox está activo
+const ATTACK_COOLDOWN = 300         // ms entre ataques
+const ATTACK_POINTS = 200           // Puntos por enemigo
 // Sprites 8-bit simplificados (1 = pixel, 0 = transparente)
 const PLAYER_SPRITE = [
   [0, 0, 1, 1, 1, 1, 0, 0],
@@ -97,6 +105,7 @@ function App() {
   // Estados React para UI de espada
   const [swordTimeLeft, setSwordTimeLeft] = useState(0)
   const [swordActive, setSwordActive] = useState(false)
+  const [playerRefHasSword, setPlayerRefHasSword] = useState(false)
 
   // Inicializar nivel desde archivo externo
   const initLevel = useCallback((lvlId) => {
@@ -268,6 +277,81 @@ function App() {
     ctx.restore()
   }
 
+  // Obtener hitbox de ataque según dirección
+  const getAttackHitbox = (player, direction) => {
+    const x = player.x
+    const y = player.y
+
+    if (direction === 'right') {
+      return { x: x + PLAYER_SIZE, y: y + 4, width: 40, height: 24 }
+    } else if (direction === 'left') {
+      return { x: x - 40, y: y + 4, width: 40, height: 24 }
+    } else if (direction === 'up') {
+      return { x: x, y: y - 32, width: 32, height: 32 }
+    }
+    return { x: 0, y: 0, width: 0, height: 0 }
+  }
+
+  // Dibujar hitbox de ataque (para debug)
+  const drawAttackHitbox = (ctx, player, direction) => {
+    if (!player.isAttacking) return
+
+    const hitbox = getAttackHitbox(player, direction)
+    ctx.save()
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)'
+    ctx.fillRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height)
+    ctx.restore()
+  }
+
+  // Dibujar efecto visual de ataque de espada
+  const drawSwordAttack = (ctx, player, direction, timer) => {
+    const x = player.x
+    const y = player.y
+    const progress = timer / ATTACK_DURATION  // 1.0 a 0.0
+
+    ctx.save()
+
+    // Color del efecto (blanco brillante al inicio, se desvanece)
+    const alpha = progress * 0.8
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
+    ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`
+    ctx.lineWidth = 3
+
+    if (direction === 'right') {
+      // Arco de ataque hacia la derecha
+      const arcX = x + PLAYER_SIZE
+      const arcY = y + PLAYER_SIZE / 2
+      ctx.beginPath()
+      ctx.arc(arcX, arcY, 35 * progress, -Math.PI / 4, Math.PI / 4, false)
+      ctx.stroke()
+
+      // Rastro del ataque
+      ctx.fillRect(x + PLAYER_SIZE, y + 8, 40 * progress, 16)
+    } else if (direction === 'left') {
+      // Arco de ataque hacia la izquierda
+      const arcX = x
+      const arcY = y + PLAYER_SIZE / 2
+      ctx.beginPath()
+      ctx.arc(arcX, arcY, 35 * progress, Math.PI * 0.75, Math.PI * 1.25, false)
+      ctx.stroke()
+
+      // Rastro
+      ctx.fillRect(x - 40 * progress, y + 8, 40 * progress, 16)
+    } else if (direction === 'up') {
+      // Arco de ataque hacia arriba
+      const arcX = x + PLAYER_SIZE / 2
+      const arcY = y
+      ctx.beginPath()
+      ctx.arc(arcX, arcY, 35 * progress, Math.PI, 0, false)
+      ctx.stroke()
+
+      // Rastro
+      ctx.fillRect(x + 4, y - 32 * progress, 24, 32 * progress)
+    }
+
+    ctx.restore()
+  }
+
   // Dibujar moneda
   const drawCoin = (ctx, coin, time) => {
     if (coin.collected) return
@@ -407,6 +491,7 @@ function App() {
           player.swordActive = false
           setSwordTimeLeft(0)
           setSwordActive(false)
+          setPlayerRefHasSword(false)
         } else {
           // Actualizar UI
           const timeLeft = player.swordTimer / 1000
@@ -414,12 +499,48 @@ function App() {
           // Último segundo: no puede atacar
           player.swordActive = player.swordTimer >= 1000
           setSwordActive(player.swordActive)
+          setPlayerRefHasSword(true)
         }
+      } else if (player.hasSword) {
+        setPlayerRefHasSword(true)
       }
 
       // Cooldown de ataque
       if (player.attackCooldown > 0) {
         player.attackCooldown -= deltaTime
+      }
+
+      // Input de ataque con espada (tecla Z)
+      if (player.hasSword && player.swordActive && keys['z'] && player.attackCooldown <= 0) {
+        // Determinar dirección del ataque
+        let attackDir = null
+        if (keys['ArrowRight'] || keys['d']) {
+          attackDir = 'right'
+          player.facingRight = true
+        } else if (keys['ArrowLeft'] || keys['a']) {
+          attackDir = 'left'
+          player.facingRight = false
+        } else if (keys['ArrowUp'] || keys['w']) {
+          attackDir = 'up'
+        } else {
+          // Dirección por defecto: hacia donde mira
+          attackDir = player.facingRight ? 'right' : 'left'
+        }
+
+        // Iniciar ataque
+        player.isAttacking = true
+        player.attackDirection = attackDir
+        player.attackTimer = ATTACK_DURATION
+        player.attackCooldown = ATTACK_COOLDOWN
+      }
+
+      // Timer del ataque
+      if (player.isAttacking && player.attackTimer > 0) {
+        player.attackTimer -= deltaTime
+        if (player.attackTimer <= 0) {
+          player.isAttacking = false
+          player.attackDirection = null
+        }
       }
 
       // Animación de bloques ? golpeados
@@ -645,9 +766,24 @@ function App() {
           enemy.vx *= -1
         }
 
-        // Colisión con jugador
+        // Verificar colisión con ataque de espada
+        if (player.isAttacking && player.attackDirection) {
+          const hitbox = getAttackHitbox(player, player.attackDirection)
+          if (
+            hitbox.x < enemy.x + 28 &&
+            hitbox.x + hitbox.width > enemy.x + 4 &&
+            hitbox.y < enemy.y + 28 &&
+            hitbox.y + hitbox.height > enemy.y + 4
+          ) {
+            // Enemigo eliminado por espada
+            enemy.x = -100
+            setScore(prev => prev + ATTACK_POINTS)
+          }
+        }
+
+        // Colisión con jugador (solo si no está en dash)
         if (
-          !player.isDashing &&
+          !player.isDashing && !player.isAttacking &&
           player.x < enemy.x + 28 &&
           player.x + PLAYER_SIZE > enemy.x + 4 &&
           player.y < enemy.y + 28 &&
@@ -670,6 +806,12 @@ function App() {
                 game.dashState.charges = MAX_DASH_CHARGES
                 setDashCharges(MAX_DASH_CHARGES)
                 player.isDashing = false
+                // Perder espada al morir
+                player.hasSword = false
+                player.swordTimer = 0
+                player.swordActive = false
+                setSwordTimeLeft(0)
+                setSwordActive(false)
               }
               return newLives
             })
@@ -730,6 +872,11 @@ function App() {
       // Dibujar jugador
       drawPlayer(ctx, player, game.dashState, timestamp)
 
+      // Dibujar efecto de ataque de espada
+      if (player.isAttacking && player.attackDirection) {
+        drawSwordAttack(ctx, player, player.attackDirection, player.attackTimer)
+      }
+
       ctx.restore()
 
       animationId = requestAnimationFrame(update)
@@ -785,7 +932,7 @@ function App() {
       </div>
 
       {/* Barra de espada (solo cuando está activa) */}
-      {swordActive && (
+      {playerRefHasSword && (
         <div className="sword-bar-container">
           <div className="sword-bar">
             <span className="sword-icon">⚔️</span>
@@ -809,6 +956,7 @@ function App() {
 
       <div className="controls-info">
         <p>⬅️ ➡️ or A/D - Move | ⬆️ or W or SPACE - Jump | SHIFT - Dash | Z - Attack (with sword)</p>
+        <p className="sword-hint">💡 Tip: Hit ? blocks from below to get the sword!</p>
       </div>
 
       {gameState === 'start' && (
