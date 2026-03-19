@@ -20,3 +20,8 @@
 - Install: `npm install`
 - Dev: `npm run dev`
 - Build: `npm run build`
+
+## 🐙 Versión y Git
+- **Tooling:** GitHub CLI (`gh`) está configurado y autenticado.
+- **Workflow:** Antes de realizar cambios grandes, el agente debe asegurarse de estar en la rama correcta (`git branch`).
+- **Commits:** Seguir el estándar de Conventional Commits (ej: `feat:`, `fix:`, `docs:`).

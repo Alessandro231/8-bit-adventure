@@ -44,6 +44,11 @@ export const LEVELS = [
       { x: 900, y: 388, vx: -2, startX: 850, endX: 1000 },
       { x: 1350, y: 388, vx: 2, startX: 1300, endX: 1450 },
     ],
+    // Bloques ? con espada - 2 bloques (1 obvio, 1 secreto)
+    powerUpBlocks: [
+      { x: 600, y: 280, type: 'sword', active: true },  // Obvio: sobre plataforma central
+      { x: 1400, y: 380, type: 'sword', active: true },  // Secreto: antes del final
+    ],
   },
   {
     id: 2,
@@ -122,6 +127,12 @@ export const LEVELS = [
       { x: 1600, y: 388, vx: -2, startX: 1500, endX: 1800 },
       // Enemigo guardián final
       { x: 1900, y: 388, vx: 2, startX: 1850, endX: 2100 },
+    ],
+    // Bloques ? con espada - 3 bloques (distribuidos)
+    powerUpBlocks: [
+      { x: 400, y: 310, type: 'sword', active: true },  // Inicio: plataforma baja
+      { x: 1100, y: 310, type: 'sword', active: true },  // Medio: torre
+      { x: 1900, y: 380, type: 'sword', active: true },  // Final: suelo
     ],
   },
   {
@@ -215,6 +226,11 @@ export const LEVELS = [
       { x: 2350, y: 288, vx: 2, startX: 2300, endX: 2430 },
       // Enemigo final boss-like
       { x: 2500, y: 388, vx: 3, startX: 2450, endX: 2650 },
+    ],
+    // Bloques ? con espada - 2 bloques (bien escondidos)
+    powerUpBlocks: [
+      { x: 900, y: 180, type: 'sword', active: true },  // Secreto: zona alta
+      { x: 2200, y: 380, type: 'sword', active: true },  // Secreto: suelo final
     ],
   },
 ]

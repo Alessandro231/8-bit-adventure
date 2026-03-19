@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo:*)",
+      "Read(//c/Users/Usuario/AppData/Local/GitHubCLI/**)",
+      "Read(//c/c/**)",
+      "Bash(echo:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/Usuario/AppData/Local/**)",
+      "Bash(cmd.exe /c \"gh --version\" 2>/dev/null || echo \"gh no disponible en cmd\")",
+      "Bash(choco install:*)",
+      "Bash(winget install:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/bin/gh.exe\" repo create game-8bit --public --source=. --push --description \"8-Bit Adventure Game - A 2D platformer game similar to classic Mario Bros\")",
+      "Bash(\"/c/Program Files \\(x86\\)/GitHub CLI/gh.exe\" repo create game-8bit --public --source=. --push --description \"8-Bit Adventure Game - A 2D platformer game similar to classic Mario Bros\")",
+      "Bash(export:*)",
+      "Bash(powershell.exe -Command \"& 'C:\\\\Program Files \\(x86\\)\\\\GitHub CLI\\\\gh.exe' repo create game-8bit --public --source=. --push --description '8-Bit Adventure Game'\")",
+      "Bash(powershell.exe -Command \"Get-Command gh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")"
+    ]
+  }
+}

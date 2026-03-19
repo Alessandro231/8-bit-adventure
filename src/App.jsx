@@ -7,7 +7,10 @@ const PLAYER_SIZE = 32
 const GRAVITY = 0.6
 const JUMP_FORCE = -12
 const MOVE_SPEED = 5
-
+const DASH_SPEED = 18
+const DASH_DURATION = 150
+const MAX_DASH_CHARGES = 3
+const DASH_RECHARGE_TIME = 2000
 // Sprites 8-bit simplificados (1 = pixel, 0 = transparente)
 const PLAYER_SPRITE = [
   [0, 0, 1, 1, 1, 1, 0, 0],
@@ -64,18 +67,36 @@ function App() {
   const [gameState, setGameState] = useState('start')
   const [score, setScore] = useState(0)
   const [lives, setLives] = useState(3)
+  const [dashCharges, setDashCharges] = useState(MAX_DASH_CHARGES)
   const [level, setLevel] = useState(1)
   const [levelName, setLevelName] = useState('')
 
   const gameRef = useRef({
-    player: { x: 50, y: 300, vx: 0, vy: 0, onGround: false, facingRight: true },
+    player: {
+      x: 50, y: 300, vx: 0, vy: 0, onGround: false, facingRight: true,
+      isDashing: false, dashTimer: 0,
+      // Estados de la espada
+      hasSword: false,
+      swordTimer: 0,
+      swordActive: false,
+      isAttacking: false,
+      attackDirection: null,
+      attackCooldown: 0,
+    },
+    dashState: { charges: MAX_DASH_CHARGES, rechargeTimer: 0, hasDashed: false, trail: [] },
     keys: {},
     platforms: [],
     coins: [],
     enemies: [],
+    powerUpBlocks: [],      // Nuevos: bloques ?
+    swordItem: null,        // Item espada flotando
     camera: { x: 0 },
     levelWidth: 2000,
   })
+
+  // Estados React para UI de espada
+  const [swordTimeLeft, setSwordTimeLeft] = useState(0)
+  const [swordActive, setSwordActive] = useState(false)
 
   // Inicializar nivel desde archivo externo
   const initLevel = useCallback((lvlId) => {
@@ -89,8 +110,12 @@ function App() {
       vx: 0,
       vy: 0,
       onGround: false,
-      facingRight: true
+      facingRight: true,
+      isDashing: false,
+      dashTimer: 0
     }
+    game.dashState = { charges: MAX_DASH_CHARGES, rechargeTimer: 0, hasDashed: false, trail: [] }
+    setDashCharges(MAX_DASH_CHARGES)
     game.camera = { x: 0 }
     game.levelWidth = levelData.levelWidth
 
@@ -102,6 +127,25 @@ function App() {
 
     // Cargar enemigos
     game.enemies = levelData.enemies.map(enemy => ({ ...enemy }))
+
+    // Cargar bloques ? (power-ups)
+    game.powerUpBlocks = levelData.powerUpBlocks ? levelData.powerUpBlocks.map(block => ({
+      ...block,
+      hit: false,
+      animationFrame: 0,
+      animationTimer: 0,
+    })) : []
+
+    // Item espada (null si no hay ninguno activo)
+    game.swordItem = null
+
+    // Resetear estados de espada en el jugador
+    game.player.hasSword = false
+    game.player.swordTimer = 0
+    game.player.swordActive = false
+
+    setSwordTimeLeft(0)
+    setSwordActive(false)
 
     setLevelName(levelData.name)
   }, [])
@@ -125,7 +169,26 @@ function App() {
   }
 
   // Dibujar jugador
-  const drawPlayer = (ctx, player) => {
+  const drawPlayer = (ctx, player, dashState, timestamp) => {
+    // Dibujar after-images
+    dashState.trail.forEach(t => {
+      ctx.save()
+      ctx.globalAlpha = t.alpha
+      if (!t.facingRight) {
+        ctx.translate(t.x + PLAYER_SIZE, t.y)
+        ctx.scale(-1, 1)
+        drawSprite(ctx, PLAYER_SPRITE, 0, 0, PLAYER_SIZE, { ...COLORS, 1: '#00FFFF', 2: '#87CEEB', 3: '#4682B4' })
+      } else {
+        drawSprite(ctx, PLAYER_SPRITE, t.x, t.y, PLAYER_SIZE, { ...COLORS, 1: '#00FFFF', 2: '#87CEEB', 3: '#4682B4' })
+      }
+      ctx.restore()
+    })
+
+    // Hacer parpadear al original si está en dash (faseando)
+    if (player.isDashing && Math.floor(timestamp / 30) % 2 === 0) {
+      return
+    }
+
     ctx.save()
     if (!player.facingRight) {
       ctx.translate(player.x + PLAYER_SIZE, player.y)
@@ -158,6 +221,98 @@ function App() {
     })
   }
 
+  // Dibujar bloque ? (power-up)
+  const drawPowerUpBlock = (ctx, block, time) => {
+    const x = block.x
+    const y = block.y
+    const size = 32
+
+    // Animación de shake después de golpear
+    let shakeX = 0
+    if (block.animationTimer > 0) {
+      shakeX = Math.sin((block.animationTimer / 300) * Math.PI) * 4
+    }
+
+    if (block.active && !block.hit) {
+      // Bloque ? activo - dorado con signo de interrogación
+      ctx.fillStyle = '#FFD700'  // Dorado
+      ctx.fillRect(x + shakeX, y, size, size)
+
+      // Borde más oscuro
+      ctx.fillStyle = '#B8860B'
+      ctx.fillRect(x + shakeX, y, size, 4)  // Top
+      ctx.fillRect(x + shakeX, y + size - 4, size, 4)  // Bottom
+      ctx.fillRect(x + shakeX, y, 4, size)  // Left
+      ctx.fillRect(x + shakeX + size - 4, y, 4, size)  // Right
+
+      // Signo de interrogación
+      ctx.fillStyle = '#8B4513'
+      ctx.font = 'bold 24px "Press Start 2P", monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('?', x + shakeX + size / 2, y + size / 2 + 2)
+
+      // Animación de flotación suave
+      const floatY = Math.sin(time / 300) * 2
+      ctx.fillStyle = '#FFA500'
+      ctx.fillRect(x + shakeX + 2, y - 4 + floatY, 4, 4)
+    } else {
+      // Bloque usado - gris vacío
+      ctx.fillStyle = '#696969'  // Gris oscuro
+      ctx.fillRect(x + shakeX, y, size, size)
+
+      // Borde más claro
+      ctx.fillStyle = '#808080'
+      ctx.fillRect(x + shakeX, y, size, 4)
+      ctx.fillRect(x + shakeX, y + size - 4, size, 4)
+      ctx.fillRect(x + shakeX, y, 4, size)
+      ctx.fillRect(x + shakeX + size - 4, y, 4, size)
+
+      // Puntos vacíos
+      ctx.fillStyle = '#404040'
+      ctx.fillRect(x + shakeX + 8, y + 10, 4, 4)
+      ctx.fillRect(x + shakeX + 20, y + 10, 4, 4)
+    }
+  }
+
+  // Dibujar item espada flotante
+  const drawSwordItem = (ctx, item, time) => {
+    const x = item.x
+    const y = item.y + item.floatOffset
+    const size = 24
+
+    // Espada simple pixel-art
+    ctx.save()
+
+    // Hoja de la espada
+    ctx.fillStyle = '#C0C0C0'  // Plateado
+    ctx.fillRect(x + 10, y, 4, 16)
+
+    // Punta de la espada
+    ctx.fillStyle = '#E8E8E8'
+    ctx.fillRect(x + 10, y, 4, 4)
+
+    // Guarda de la espada
+    ctx.fillStyle = '#FFD700'  // Dorado
+    ctx.fillRect(x + 6, y + 14, 12, 4)
+
+    // Mango de la espada
+    ctx.fillStyle = '#8B4513'  // Marrón
+    ctx.fillRect(x + 10, y + 18, 4, 6)
+
+    // Pomelo
+    ctx.fillStyle = '#FFD700'
+    ctx.fillRect(x + 8, y + 22, 8, 4)
+
+    // Brillo de flotación
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)'
+    ctx.beginPath()
+    ctx.arc(x + 12, y + 12, 16, 0, Math.PI * 2)
+    ctx.fill()
+
+    ctx.restore()
+  }
+
   // Loop del juego
   useEffect(() => {
     if (gameState !== 'playing') return
@@ -173,27 +328,129 @@ function App() {
       const deltaTime = timestamp - lastTime
       lastTime = timestamp
 
-      const { player, keys, platforms, coins, enemies, camera, levelWidth } = game
+      const { player, keys, platforms, coins, enemies, camera, levelWidth, powerUpBlocks, swordItem } = game
+
+      // Timer de la espada (si está activa)
+      if (player.hasSword && player.swordTimer > 0) {
+        player.swordTimer -= deltaTime
+        if (player.swordTimer <= 0) {
+          // Espada se acaba
+          player.hasSword = false
+          player.swordActive = false
+          setSwordTimeLeft(0)
+          setSwordActive(false)
+        } else {
+          // Actualizar UI
+          const timeLeft = player.swordTimer / 1000
+          setSwordTimeLeft(timeLeft)
+          // Último segundo: no puede atacar
+          player.swordActive = player.swordTimer >= 1000
+          setSwordActive(player.swordActive)
+        }
+      }
+
+      // Cooldown de ataque
+      if (player.attackCooldown > 0) {
+        player.attackCooldown -= deltaTime
+      }
+
+      // Animación de bloques ? golpeados
+      powerUpBlocks.forEach(block => {
+        if (block.animationTimer > 0) {
+          block.animationTimer -= deltaTime
+          if (block.animationTimer <= 0) {
+            block.animationFrame = 0
+          }
+        }
+      })
+
+      // Recoger item espada
+      if (game.swordItem && !game.swordItem.collected) {
+        const item = game.swordItem
+        // Actualizar flotación
+        item.floatTimer += deltaTime
+        item.floatOffset = Math.sin(item.floatTimer / 200) * 5
+
+        // Verificar colisión con jugador
+        if (
+          player.x < item.x + 24 &&
+          player.x + PLAYER_SIZE > item.x &&
+          player.y < item.y + 24 &&
+          player.y + PLAYER_SIZE > item.y
+        ) {
+          // ¡Recogida!
+          item.collected = true
+          player.hasSword = true
+          player.swordTimer = 10000  // 10 segundos
+          player.swordActive = true
+          game.swordItem = null
+          setSwordTimeLeft(10)
+          setSwordActive(true)
+        }
+      }
 
       // Movimiento del jugador
-      if (keys['ArrowLeft'] || keys['a']) {
-        player.vx = -MOVE_SPEED
-        player.facingRight = false
-      } else if (keys['ArrowRight'] || keys['d']) {
-        player.vx = MOVE_SPEED
-        player.facingRight = true
+      if (player.isDashing) {
+        player.dashTimer -= deltaTime
+        if (player.dashTimer <= 0) {
+          player.isDashing = false
+        } else {
+          player.vy = 0 // Sin gravedad en el dash
+          player.vx = player.facingRight ? DASH_SPEED : -DASH_SPEED
+          
+          // Crear rastro
+          game.dashState.trail.push({ x: player.x, y: player.y, facingRight: player.facingRight, alpha: 0.5 })
+        }
       } else {
-        player.vx = 0
+        if (keys['ArrowLeft'] || keys['a']) {
+          player.vx = -MOVE_SPEED
+          player.facingRight = false
+        } else if (keys['ArrowRight'] || keys['d']) {
+          player.vx = MOVE_SPEED
+          player.facingRight = true
+        } else {
+          player.vx = 0
+        }
+
+        // Salto
+        if ((keys['ArrowUp'] || keys['w'] || keys[' ']) && player.onGround) {
+          player.vy = JUMP_FORCE
+          player.onGround = false
+        }
       }
 
-      // Salto
-      if ((keys['ArrowUp'] || keys['w'] || keys[' ']) && player.onGround) {
-        player.vy = JUMP_FORCE
-        player.onGround = false
+      // Input y control del Dash
+      if (keys['Shift'] && game.dashState.charges > 0 && !player.isDashing && !game.dashState.hasDashed) {
+        game.dashState.charges--
+        setDashCharges(game.dashState.charges)
+        player.isDashing = true
+        player.dashTimer = DASH_DURATION
+        game.dashState.hasDashed = true
       }
+      if (!keys['Shift']) {
+        game.dashState.hasDashed = false
+      }
+
+      // Recarga de Dash
+      if (game.dashState.charges < MAX_DASH_CHARGES && !player.isDashing) {
+        game.dashState.rechargeTimer += deltaTime
+        if (game.dashState.rechargeTimer >= DASH_RECHARGE_TIME) {
+          game.dashState.charges++
+          game.dashState.rechargeTimer = 0
+          setDashCharges(game.dashState.charges)
+        }
+      } else if (player.isDashing) {
+        game.dashState.rechargeTimer = 0 // No recarga mientras se desliza
+      }
+
+      // Difuminar rastro (trail)
+      game.dashState.trail.forEach(t => t.alpha -= 0.05 * (deltaTime / 16))
+      game.dashState.trail = game.dashState.trail.filter(t => t.alpha > 0)
 
       // Gravedad
-      player.vy += GRAVITY
+      if (!player.isDashing) {
+        player.vy += GRAVITY
+      }
 
       // Aplicar velocidad
       player.x += player.vx
@@ -219,6 +476,53 @@ function App() {
         }
       })
 
+      // Colisión con bloques ? (golpear desde abajo)
+      powerUpBlocks.forEach(block => {
+        if (!block.hit && !block.active) {
+          // Bloque ya usado, solo colisión sólida
+          if (
+            player.x < block.x + 32 &&
+            player.x + PLAYER_SIZE > block.x &&
+            player.y < block.y + 32 &&
+            player.y + PLAYER_SIZE > block.y
+          ) {
+            // Colisión desde abajo
+            if (player.vy < 0 && player.y > block.y + 16) {
+              player.y = block.y + 32
+              player.vy = 0
+              // Animación de golpe
+              block.animationFrame = 1
+              block.animationTimer = 300
+            }
+          }
+        } else if (block.active && !block.hit) {
+          // Bloque activo - verificar golpe desde abajo
+          if (
+            player.x < block.x + 32 &&
+            player.x + PLAYER_SIZE > block.x &&
+            player.y + PLAYER_SIZE > block.y &&
+            player.y + PLAYER_SIZE < block.y + 16 &&  // Solo parte inferior
+            player.vy < 0  // Movimiento hacia arriba
+          ) {
+            // ¡Golpeado!
+            block.hit = true
+            block.active = false
+            block.animationFrame = 1
+            block.animationTimer = 300
+
+            // Crear item espada flotando sobre el bloque
+            swordItem = {
+              x: block.x + 4,
+              y: block.y - 40,
+              type: 'sword',
+              floatOffset: 0,
+              floatTimer: 0,
+              collected: false,
+            }
+          }
+        }
+      })
+
       // Caída al vacío
       if (player.y > CANVAS_HEIGHT) {
         setLives(prev => {
@@ -229,6 +533,9 @@ function App() {
             player.x = 50
             player.y = 300
             player.vy = 0
+            game.dashState.charges = MAX_DASH_CHARGES
+            setDashCharges(MAX_DASH_CHARGES)
+            player.isDashing = false
           }
           return newLives
         })
@@ -272,6 +579,7 @@ function App() {
 
         // Colisión con jugador
         if (
+          !player.isDashing &&
           player.x < enemy.x + 28 &&
           player.x + PLAYER_SIZE > enemy.x + 4 &&
           player.y < enemy.y + 28 &&
@@ -291,6 +599,9 @@ function App() {
                 player.x = 50
                 player.y = 300
                 player.vy = 0
+                game.dashState.charges = MAX_DASH_CHARGES
+                setDashCharges(MAX_DASH_CHARGES)
+                player.isDashing = false
               }
               return newLives
             })
@@ -338,8 +649,18 @@ function App() {
       // Dibujar enemigos
       enemies.forEach(enemy => drawEnemy(ctx, enemy, timestamp))
 
+      // Dibujar bloques ?
+      powerUpBlocks.forEach(block => {
+        drawPowerUpBlock(ctx, block, timestamp)
+      })
+
+      // Dibujar item espada flotando
+      if (game.swordItem && !game.swordItem.collected) {
+        drawSwordItem(ctx, game.swordItem, timestamp)
+      }
+
       // Dibujar jugador
-      drawPlayer(ctx, player)
+      drawPlayer(ctx, player, game.dashState, timestamp)
 
       ctx.restore()
 
@@ -374,6 +695,8 @@ function App() {
     setScore(0)
     setLives(3)
     setLevel(1)
+    setSwordTimeLeft(0)
+    setSwordActive(false)
     setGameState('playing')
   }
 
@@ -389,8 +712,25 @@ function App() {
       <div className="hud">
         <div className="hud-item">SCORE: {score.toString().padStart(6, '0')}</div>
         <div className="hud-item">LIVES: {'❤️'.repeat(lives)}</div>
+        <div className="hud-item">DASH: {'⚡'.repeat(dashCharges)}</div>
         <div className="hud-item">LEVEL: {level} - {levelName}</div>
       </div>
+
+      {/* Barra de espada (solo cuando está activa) */}
+      {swordActive && (
+        <div className="sword-bar-container">
+          <div className="sword-bar">
+            <span className="sword-icon">⚔️</span>
+            <div className="sword-time-bar">
+              <div
+                className={`sword-time-fill ${swordTimeLeft <= 3 ? 'warning' : ''} ${swordTimeLeft <= 1 ? 'critical' : ''}`}
+                style={{ width: `${(swordTimeLeft / 10) * 100}%` }}
+              />
+            </div>
+            <span className="sword-time-text">{swordTimeLeft.toFixed(1)}s</span>
+          </div>
+        </div>
+      )}
 
       <canvas
         ref={canvasRef}
@@ -400,7 +740,7 @@ function App() {
       />
 
       <div className="controls-info">
-        <p>⬅️ ➡️ or A/D - Move | ⬆️ or W or SPACE - Jump</p>
+        <p>⬅️ ➡️ or A/D - Move | ⬆️ or W or SPACE - Jump | SHIFT - Dash | Z - Attack (with sword)</p>
       </div>
 
       {gameState === 'start' && (
