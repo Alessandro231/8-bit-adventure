@@ -197,6 +197,74 @@ function App() {
     } else {
       drawSprite(ctx, PLAYER_SPRITE, player.x, player.y, PLAYER_SIZE, COLORS)
     }
+
+    // Dibujar espada equipada si el jugador la tiene
+    if (player.hasSword) {
+      drawEquippedSword(ctx, player, player.facingRight, timestamp)
+    }
+
+    ctx.restore()
+  }
+
+  // Dibujar espada equipada en el jugador
+  const drawEquippedSword = (ctx, player, facingRight, time) => {
+    const x = player.x
+    const y = player.y
+    const size = 32
+
+    // Animación de flotación suave de la espada
+    const floatY = Math.sin(time / 200) * 2
+
+    ctx.save()
+
+    if (facingRight) {
+      // Espada apuntando hacia la derecha (posición de reposo)
+      const swordX = x + size - 4
+      const swordY = y + 12 + floatY
+
+      // Hoja de la espada
+      ctx.fillStyle = '#C0C0C0'  // Plateado
+      ctx.fillRect(swordX, swordY, 16, 4)
+
+      // Punta
+      ctx.fillStyle = '#E8E8E8'
+      ctx.fillRect(swordX + 14, swordY, 4, 4)
+
+      // Guarda
+      ctx.fillStyle = '#FFD700'  // Dorado
+      ctx.fillRect(swordX - 2, swordY - 4, 6, 12)
+
+      // Mango
+      ctx.fillStyle = '#8B4513'  // Marrón
+      ctx.fillRect(swordX - 6, swordY - 2, 6, 6)
+    } else {
+      // Espejo para izquierda
+      const swordX = x - 12
+      const swordY = y + 12 + floatY
+
+      // Hoja
+      ctx.fillStyle = '#C0C0C0'
+      ctx.fillRect(swordX, swordY, 16, 4)
+
+      // Punta
+      ctx.fillStyle = '#E8E8E8'
+      ctx.fillRect(swordX, swordY, 4, 4)
+
+      // Guarda
+      ctx.fillStyle = '#FFD700'
+      ctx.fillRect(swordX + 14, swordY - 4, 6, 12)
+
+      // Mango
+      ctx.fillStyle = '#8B4513'
+      ctx.fillRect(swordX + 18, swordY - 2, 6, 6)
+    }
+
+    // Brillo de la espada
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.2)'
+    ctx.beginPath()
+    ctx.arc(x + size/2, y + 16 + floatY, 20, 0, Math.PI * 2)
+    ctx.fill()
+
     ctx.restore()
   }
 
