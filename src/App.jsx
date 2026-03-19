@@ -411,16 +411,6 @@ function App() {
     })
   }
 
-  // Dibujar enemigo
-  const drawEnemy = (ctx, enemy, time) => {
-    const squish = Math.sin(time / 100) * 2
-    drawSprite(ctx, ENEMY_SPRITE, enemy.x, enemy.y - squish, 32, {
-      1: COLORS.enemy,
-      2: '#FF6B6B',
-      3: COLORS.enemyInner,
-    })
-  }
-
   // Dibujar bloque ? (power-up)
   const drawPowerUpBlock = (ctx, block, time) => {
     const x = block.x
