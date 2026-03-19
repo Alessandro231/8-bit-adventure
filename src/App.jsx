@@ -700,7 +700,7 @@ function App() {
             block.animationTimer = 300
 
             // Crear item espada flotando sobre el bloque
-            swordItem = {
+            game.swordItem = {
               x: block.x + 4,
               y: block.y - 40,
               type: 'sword',
