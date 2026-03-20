@@ -25,6 +25,10 @@ export const LEVELS = [
       { x: 720, y: 380, width: 40, height: 40, type: 'block' },
       { x: 1150, y: 380, width: 40, height: 40, type: 'block' },
     ],
+    mobilePlatforms: [
+      { id: 'l1-m1', x: 260, y: 360, width: 96, height: 20, axis: 'x', range: 200, speed: 2.5, pauseMs: 300, startActive: true },
+      { id: 'l1-m2', x: 980, y: 280, width: 96, height: 20, axis: 'x', range: 200, speed: 2.5, pauseMs: 300, startActive: true },
+    ],
     coins: [
       { x: 230, y: 280 },
       { x: 260, y: 280 },
@@ -88,6 +92,10 @@ export const LEVELS = [
       { x: 1100, y: 380, width: 40, height: 40, type: 'block' },
       { x: 1480, y: 380, width: 40, height: 40, type: 'block' },
       { x: 1950, y: 380, width: 40, height: 40, type: 'block' },
+    ],
+    mobilePlatforms: [
+      { id: 'l2-m1', x: 620, y: 340, width: 96, height: 20, axis: 'x', range: 200, speed: 2.5, pauseMs: 300, startActive: true },
+      { id: 'l2-m2', x: 1700, y: 300, width: 96, height: 20, axis: 'x', range: 200, speed: 2.5, pauseMs: 300, startActive: true },
     ],
     coins: [
       // Monedas en escalera inicial
@@ -180,6 +188,10 @@ export const LEVELS = [
       { x: 350, y: 380, width: 30, height: 40, type: 'block' },
       { x: 1050, y: 380, width: 30, height: 40, type: 'block' },
       { x: 2050, y: 380, width: 30, height: 40, type: 'block' },
+    ],
+    mobilePlatforms: [
+      { id: 'l3-m1', x: 520, y: 320, width: 96, height: 20, axis: 'x', range: 200, speed: 2.5, pauseMs: 300, startActive: true },
+      { id: 'l3-m2', x: 2140, y: 360, width: 96, height: 20, axis: 'x', range: 200, speed: 2.5, pauseMs: 300, startActive: true },
     ],
     coins: [
       // Escalera inicial

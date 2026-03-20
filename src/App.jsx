@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { loadLevel, hasNextLevel, getNextLevel, LEVELS } from './levels'
+import {
+  createMobilePlatforms,
+  updateMobilePlatforms,
+  resolvePlayerOnMobilePlatforms,
+  isPlayerCrushedByMobilePlatform,
+  resolveEnemyPlatformTransport,
+} from './mobilePlatforms'
 
 const CANVAS_WIDTH = 640
 const CANVAS_HEIGHT = 480
@@ -11,6 +18,7 @@ const DASH_SPEED = 18
 const DASH_DURATION = 150
 const MAX_DASH_CHARGES = 3
 const DASH_RECHARGE_TIME = 2000
+const DAMAGE_INVULN_TIME = 1000
 
 // Constantes del sistema de espada
 const SWORD_DURATION = 10000        // 10 segundos total
@@ -94,6 +102,7 @@ function App() {
     dashState: { charges: MAX_DASH_CHARGES, rechargeTimer: 0, hasDashed: false, trail: [] },
     keys: {},
     platforms: [],
+    mobilePlatforms: [],
     coins: [],
     enemies: [],
     powerUpBlocks: [],      // Nuevos: bloques ?
@@ -112,7 +121,6 @@ function App() {
     const levelData = loadLevel(lvlId)
     const game = gameRef.current
 
-    // Resetear jugador al spawn point del nivel
     game.player = {
       x: levelData.spawnPoint.x,
       y: levelData.spawnPoint.y,
@@ -121,7 +129,17 @@ function App() {
       onGround: false,
       facingRight: true,
       isDashing: false,
-      dashTimer: 0
+      dashTimer: 0,
+      hasSword: false,
+      swordTimer: 0,
+      swordActive: false,
+      isAttacking: false,
+      attackDirection: null,
+      attackCooldown: 0,
+      attackTimer: 0,
+      supportVelocityX: 0,
+      supportedByMobileId: null,
+      damageInvuln: 0,
     }
     game.dashState = { charges: MAX_DASH_CHARGES, rechargeTimer: 0, hasDashed: false, trail: [] }
     setDashCharges(MAX_DASH_CHARGES)
@@ -130,6 +148,7 @@ function App() {
 
     // Cargar plataformas
     game.platforms = levelData.platforms
+    game.mobilePlatforms = createMobilePlatforms(levelData.mobilePlatforms)
 
     // Cargar monedas (con estado collected)
     game.coins = levelData.coins.map(coin => ({ ...coin, collected: false }))
@@ -503,6 +522,24 @@ function App() {
     ctx.restore()
   }
 
+  const drawMobilePlatform = (ctx, platform) => {
+    ctx.fillStyle = '#5A6E8F'
+    ctx.fillRect(platform.x, platform.y, platform.width, platform.height)
+    ctx.fillStyle = '#9FB3D9'
+    ctx.fillRect(platform.x, platform.y, platform.width, 5)
+
+    // Flechas para reforzar lectura de dirección horizontal
+    if (platform.axis === 'x') {
+      const arrowY = platform.y + platform.height / 2
+      ctx.strokeStyle = '#D9E5FF'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(platform.x + 10, arrowY)
+      ctx.lineTo(platform.x + platform.width - 10, arrowY)
+      ctx.stroke()
+    }
+  }
+
   // Loop del juego
   useEffect(() => {
     if (gameState !== 'playing') return
@@ -515,10 +552,46 @@ function App() {
     let lastTime = 0
 
     const update = (timestamp) => {
-      const deltaTime = timestamp - lastTime
+      const deltaTime = lastTime === 0 ? 16.67 : timestamp - lastTime
       lastTime = timestamp
 
-      const { player, keys, platforms, coins, enemies, camera, levelWidth, powerUpBlocks, swordItem } = game
+      const { player, keys, platforms, mobilePlatforms, coins, enemies, camera, levelWidth, powerUpBlocks, swordItem } = game
+
+      const applyPlayerDamage = () => {
+        if (player.damageInvuln > 0) return
+
+        setLives(prev => {
+          const newLives = prev - 1
+          if (newLives <= 0) {
+            setGameState('gameover')
+          } else {
+            player.x = 50
+            player.y = 300
+            player.vx = 0
+            player.vy = 0
+            player.supportVelocityX = 0
+            player.supportedByMobileId = null
+            player.damageInvuln = DAMAGE_INVULN_TIME
+            game.dashState.charges = MAX_DASH_CHARGES
+            setDashCharges(MAX_DASH_CHARGES)
+            player.isDashing = false
+            // Perder espada al recibir daño
+            player.hasSword = false
+            player.swordTimer = 0
+            player.swordActive = false
+            setSwordTimeLeft(0)
+            setSwordActive(false)
+            setPlayerRefHasSword(false)
+          }
+          return newLives
+        })
+      }
+
+      if (player.damageInvuln > 0) {
+        player.damageInvuln = Math.max(0, player.damageInvuln - deltaTime)
+      }
+
+      updateMobilePlatforms(deltaTime, mobilePlatforms)
 
       // Timer de la espada (si está activa)
       if (player.hasSword && player.swordTimer > 0) {
@@ -548,8 +621,8 @@ function App() {
         player.attackCooldown -= deltaTime
       }
 
-      // Input de ataque con espada (tecla Z)
-      if (player.hasSword && player.swordActive && keys['z'] && player.attackCooldown <= 0) {
+      // Input de ataque con espada (tecla Z o X)
+      if (player.hasSword && player.swordActive && (keys['z'] || keys['Z'] || keys['x'] || keys['X']) && player.attackCooldown <= 0) {
         // Determinar dirección del ataque
         let attackDir = null
         if (keys['ArrowRight'] || keys['d']) {
@@ -643,6 +716,9 @@ function App() {
         if ((keys['ArrowUp'] || keys['w'] || keys[' ']) && player.onGround) {
           player.vy = JUMP_FORCE
           player.onGround = false
+          player.vx += player.supportVelocityX || 0
+          player.supportVelocityX = 0
+          player.supportedByMobileId = null
         }
       }
 
@@ -703,6 +779,21 @@ function App() {
         }
       })
 
+      // Contacto con plataformas móviles (arrastre automático)
+      resolvePlayerOnMobilePlatforms(player, mobilePlatforms, PLAYER_SIZE)
+
+      // Mantener al jugador dentro de los límites tras el arrastre
+      if (player.x < 0) player.x = 0
+      if (player.x > levelWidth - PLAYER_SIZE) player.x = levelWidth - PLAYER_SIZE
+
+      // Aplastamiento por plataforma móvil contra sólidos estáticos
+      if (
+        player.damageInvuln <= 0 &&
+        isPlayerCrushedByMobilePlatform(player, mobilePlatforms, platforms, PLAYER_SIZE)
+      ) {
+        applyPlayerDamage()
+      }
+
       // Colisión con bloques ? (golpear desde abajo)
       powerUpBlocks.forEach(block => {
         if (!block.hit && !block.active) {
@@ -752,20 +843,7 @@ function App() {
 
       // Caída al vacío
       if (player.y > CANVAS_HEIGHT) {
-        setLives(prev => {
-          const newLives = prev - 1
-          if (newLives <= 0) {
-            setGameState('gameover')
-          } else {
-            player.x = 50
-            player.y = 300
-            player.vy = 0
-            game.dashState.charges = MAX_DASH_CHARGES
-            setDashCharges(MAX_DASH_CHARGES)
-            player.isDashing = false
-          }
-          return newLives
-        })
+        applyPlayerDamage()
       }
 
       // Colisión con monedas
@@ -807,6 +885,9 @@ function App() {
           enemy.vx *= -1
         }
 
+        // Enemigos: transporte sobre plataformas móviles (sin daño por aplastamiento)
+        resolveEnemyPlatformTransport([enemy], mobilePlatforms, 32)
+
         // Verificar colisión con ataque de espada
         if (player.isAttacking && player.attackDirection && !enemy.hitBySword) {
           const hitbox = getAttackHitbox(player, player.attackDirection)
@@ -825,7 +906,7 @@ function App() {
 
         // Colisión con jugador (solo si no está en dash ni atacando)
         if (
-          !player.isDashing && !player.isAttacking &&
+          !player.isDashing && !player.isAttacking && player.damageInvuln <= 0 &&
           !enemy.dead &&
           player.x < enemy.x + 28 &&
           player.x + PLAYER_SIZE > enemy.x + 4 &&
@@ -838,26 +919,7 @@ function App() {
             player.vy = JUMP_FORCE / 2
             setScore(prev => prev + 200)
           } else {
-            setLives(prev => {
-              const newLives = prev - 1
-              if (newLives <= 0) {
-                setGameState('gameover')
-              } else {
-                player.x = 50
-                player.y = 300
-                player.vy = 0
-                game.dashState.charges = MAX_DASH_CHARGES
-                setDashCharges(MAX_DASH_CHARGES)
-                player.isDashing = false
-                // Perder espada al morir
-                player.hasSword = false
-                player.swordTimer = 0
-                player.swordActive = false
-                setSwordTimeLeft(0)
-                setSwordActive(false)
-              }
-              return newLives
-            })
+            applyPlayerDamage()
           }
         }
       })
@@ -897,6 +959,11 @@ function App() {
           ctx.fillStyle = '#228B22'
           ctx.fillRect(platform.x, platform.y, platform.width, 5)
         }
+      })
+
+      // Dibujar plataformas móviles
+      mobilePlatforms.forEach(platform => {
+        drawMobilePlatform(ctx, platform)
       })
 
       // Dibujar monedas
